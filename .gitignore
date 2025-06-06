@@ -4,6 +4,9 @@ token.json
 
 # Downloaded emails
 emails/
+emails_json/
+email_backups/
+all_emails.json
 
 # Python
 __pycache__/
@@ -26,5 +29,3 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
-
-credentials.json

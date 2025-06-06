@@ -1,3 +1,4 @@
+import argparse
 import base64
 import os
 
@@ -10,7 +11,89 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Download emails from a Gmail label")
+    parser.add_argument(
+        "--count",
+        "-c",
+        type=int,
+        default=100,
+        help="Number of emails to download (default: 100)",
+    )
+    parser.add_argument(
+        "--label",
+        "-l",
+        type=str,
+        default="Label_8860527106742868850",
+        help="Gmail label ID or name (e.g., 'INBOX', 'Label_123456')",
+    )
+    return parser.parse_args()
+
+
+def download_emails_batch(service, label_id, max_count):
+    """Download emails with pagination support."""
+    emails_downloaded = 0
+    page_token = None
+    all_messages = []
+
+    # Gmail API allows max 500 results per request
+    max_per_request = 500
+
+    print(f"Fetching up to {max_count} emails from label '{label_id}'...")
+
+    while emails_downloaded < max_count:
+        try:
+            # Calculate how many to request in this batch
+            remaining = max_count - emails_downloaded
+            batch_size = min(remaining, max_per_request)
+
+            # Build the request
+            if page_token:
+                results = (
+                    service.users()
+                    .messages()
+                    .list(
+                        userId="me",
+                        labelIds=[label_id],
+                        maxResults=batch_size,
+                        pageToken=page_token,
+                    )
+                    .execute()
+                )
+            else:
+                results = (
+                    service.users()
+                    .messages()
+                    .list(userId="me", labelIds=[label_id], maxResults=batch_size)
+                    .execute()
+                )
+
+            messages = results.get("messages", [])
+            if not messages:
+                break
+
+            all_messages.extend(messages)
+            emails_downloaded += len(messages)
+
+            print(f"  Fetched {len(messages)} emails (Total: {emails_downloaded})")
+
+            # Check if there are more pages
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+
+        except Exception as e:
+            print(f"Error fetching emails: {e}")
+            break
+
+    return all_messages[:max_count]  # Ensure we don't exceed requested count
+
+
 def main():
+    # Parse command line arguments
+    args = parse_arguments()
+
     creds = None
     # Token stores the user's access and refresh tokens.
     if os.path.exists("token.json"):
@@ -28,44 +111,46 @@ def main():
 
     service = build("gmail", "v1", credentials=creds)
 
-    # Replace 'Label_123456' with your Gmail label ID or use 'INBOX' etc.
-    label_id = "Label_123456"  # example label ID
-
-    # Get list of message IDs for the label
-    results = (
-        service.users()
-        .messages()
-        .list(userId="me", labelIds=[label_id], maxResults=100)
-        .execute()
-    )
-    messages = results.get("messages", [])
+    # Get emails using pagination
+    messages = download_emails_batch(service, args.label, args.count)
 
     if not messages:
         print("No messages found.")
         return
 
+    print(f"\nDownloading {len(messages)} emails...")
+
     # Create directory to save emails
     os.makedirs("emails", exist_ok=True)
 
-    for msg in messages:
+    # Download each email
+    for i, msg in enumerate(messages, 1):
         msg_id = msg["id"]
-        message = (
-            service.users()
-            .messages()
-            .get(userId="me", id=msg_id, format="raw")
-            .execute()
-        )
-        raw_msg = message["raw"]
+        try:
+            message = (
+                service.users()
+                .messages()
+                .get(userId="me", id=msg_id, format="raw")
+                .execute()
+            )
+            raw_msg = message["raw"]
 
-        # Decode base64url email message
-        msg_bytes = base64.urlsafe_b64decode(raw_msg.encode("ASCII"))
+            # Decode base64url email message
+            msg_bytes = base64.urlsafe_b64decode(raw_msg.encode("ASCII"))
 
-        # Save the email as .eml file with message ID as filename
-        eml_path = os.path.join("emails", f"{msg_id}.eml")
-        with open(eml_path, "wb") as eml_file:
-            eml_file.write(msg_bytes)
+            # Save the email as .eml file with message ID as filename
+            eml_path = os.path.join("emails", f"{msg_id}.eml")
+            with open(eml_path, "wb") as eml_file:
+                eml_file.write(msg_bytes)
 
-        print(f"Saved email {msg_id} to {eml_path}")
+            print(f"[{i}/{len(messages)}] Saved email {msg_id}")
+
+        except Exception as e:
+            print(f"[{i}/{len(messages)}] Error downloading email {msg_id}: {e}")
+
+    print(
+        f"\n✅ Download complete! Saved {len(messages)} emails to 'emails/' directory."
+    )
 
 
 if __name__ == "__main__":

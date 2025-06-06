@@ -1,6 +1,14 @@
 # Gmail Email Downloader
 
-This Python script uses the Gmail API to download emails from a specific Gmail label (folder) and save them as `.eml` files locally.
+A Python tool that uses the Gmail API to download emails from any Gmail label and convert them to JSON format for easy analysis.
+
+**Key Features:**
+
+- Download any number of emails (automatic pagination for large requests)
+- Convert emails to JSON format with a single command
+- Extract sender, subject, and body text
+- Command-line interface for easy automation
+- Backup management with timestamped archives
 
 ## Prerequisites
 
@@ -159,27 +167,141 @@ This will:
 
 ### Step 2: Download Emails
 
-1. Open `download_emails.py` and replace `'Label_123456'` with your actual label ID:
-
-```python
-label_id = 'Label_123456'  # Replace with your label ID
-```
-
-2. Run the download script:
+Run the download script with your label ID:
 
 ```bash
-# With virtual environment activated:
-python download_emails.py
+# Download 100 emails (default)
+python download_emails.py --label Label_123456
+
+# Download a specific number of emails
+python download_emails.py --label Label_123456 --count 500
+
+# Download from INBOX
+python download_emails.py --label INBOX --count 50
 
 # Or using uv run:
-uv run python download_emails.py
+uv run python download_emails.py --label Label_123456 --count 200
 ```
+
+Command line options:
+
+- `--label` or `-l`: Gmail label ID or name (e.g., 'INBOX', 'Label_123456')
+- `--count` or `-c`: Number of emails to download (default: 100)
 
 The script will:
 
 - Create an `emails` directory if it doesn't exist
-- Download up to 100 emails from the specified label
+- Automatically handle pagination for large email counts (>500)
+- Download the specified number of emails from the label
 - Save each email as a `.eml` file named with its message ID
+
+## Email Processing Scripts
+
+### Quick Processing (Recommended)
+
+After downloading emails, use the combined processing script to convert and combine in one step:
+
+```bash
+# Process all downloaded emails
+python process_emails.py
+
+# Or using uv run:
+uv run python process_emails.py
+```
+
+This single command will:
+
+1. Convert all EML files to JSON format
+2. Create individual JSON files in `emails_json/`
+3. Combine all JSON files into `all_emails.json`
+4. Create a timestamped backup in `email_backups/`
+
+### Manual Processing (Alternative)
+
+You can also run the conversion and combination steps separately:
+
+#### Converting EML Files to JSON
+
+```bash
+python convert_eml_to_json.py
+```
+
+This script:
+
+- Reads all `.eml` files from the `emails` directory
+- Extracts the sender, subject line, and plain text body
+- Saves each email as a JSON file in the `emails_json` directory
+- Preserves the original filename (e.g., `message_id.eml` becomes `message_id.json`)
+
+#### Combining JSON Files
+
+```bash
+python combine_json_files.py
+
+# Or with custom output:
+python combine_json_files.py --output my_emails.json
+```
+
+This script:
+
+- Reads all JSON files from the `emails_json` directory
+- Combines them into a single JSON array
+- Adds an `id` field to each email (the original Gmail message ID)
+- Creates two output files:
+  - `all_emails.json` - A single file containing all emails
+  - `email_backups/all_emails_YYYYMMDD_HHMMSS.json` - Timestamped backups
+
+Example combined JSON output:
+
+```json
+[
+  {
+    "sender": "John Doe <john.doe@example.com>",
+    "subject": "Meeting Tomorrow",
+    "body": "Hi,\n\nJust confirming our meeting tomorrow at 2 PM.\n\nBest regards,\nJohn",
+    "id": "18abc123def456"
+  },
+  {
+    "sender": "Jane Smith <jane@example.com>",
+    "subject": "Project Update",
+    "body": "Here's the latest update on our project...",
+    "id": "18abc789ghi012"
+  }
+]
+```
+
+### Complete Workflow
+
+#### Option 1: Streamlined (Recommended)
+
+```bash
+# 1. Find your label ID
+python list_labels.py
+
+# 2. Download emails
+python download_emails.py --label Label_123456 --count 250
+
+# 3. Process emails (convert and combine)
+python process_emails.py
+```
+
+#### Option 2: Step by Step
+
+```bash
+# 1. Find your label ID
+python list_labels.py
+
+# 2. Download emails
+python download_emails.py --label Label_123456 --count 250
+
+# 3. Convert to JSON
+python convert_eml_to_json.py
+
+# 4. Combine JSON files
+python combine_json_files.py
+```
+
+The final `all_emails.json` file can be easily imported into other tools for analysis, searching, or processing.
 
 ## Virtual Environment Management with uv
 
@@ -259,6 +381,9 @@ uv venv --python 3.12
 ```
 gmail_download_tagged_emails/
 ├── download_emails.py       # Main script to download emails
+├── process_emails.py       # Combined script to convert and combine emails
+├── convert_eml_to_json.py  # Convert EML files to JSON format
+├── combine_json_files.py   # Combine individual JSON files into one
 ├── list_labels.py          # Helper script to list Gmail labels
 ├── requirements.txt        # Python dependencies
 ├── pyproject.toml         # Project metadata and dependencies
@@ -266,6 +391,8 @@ gmail_download_tagged_emails/
 ├── credentials.json        # OAuth 2.0 credentials (you need to add this)
 ├── token.json             # Generated auth token (created automatically)
 ├── emails/                # Downloaded emails directory (created automatically)
+├── emails_json/           # JSON email files directory (created automatically)
+├── email_backups/         # Timestamped backup files (created automatically)
 ├── .gitignore             # Git ignore file
 ├── README.md              # This file
 └── SETUP_GUIDE.md         # Quick setup guide
@@ -299,12 +426,15 @@ gmail_download_tagged_emails/
 
 ## Customization
 
-- To download more than 100 emails, modify the `maxResults` parameter in `download_emails.py`
-- To download from INBOX or other system labels, use:
-  - `'INBOX'` for inbox
-  - `'SENT'` for sent emails
-  - `'TRASH'` for trash
-  - `'SPAM'` for spam folder
+- To download from different labels, use the `--label` parameter:
+  - `--label INBOX` for inbox
+  - `--label SENT` for sent emails
+  - `--label TRASH` for trash
+  - `--label SPAM` for spam folder
+  - `--label Label_123456` for custom labels (use `list_labels.py` to find IDs)
+- To download more or fewer emails, use the `--count` parameter:
+  - `--count 50` for 50 emails
+  - `--count 1000` for 1000 emails (pagination handled automatically)
 
 ## Troubleshooting
 
